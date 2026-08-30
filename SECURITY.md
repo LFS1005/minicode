@@ -16,7 +16,7 @@ Include: affected file(s), reproduction steps, and impact. You'll get an initial
 
 minicode is a terminal agent that executes shell commands with the current user's authority. Be aware of the following before using it:
 
-- **`bash` tool runs real commands.** There is currently **no permission-confirmation gate** — the model can execute any command without asking (identical to opencode's `--yes`-style non-interactive mode). This is the top item on the roadmap. Until it ships, run minicode only in environments and on codebases you trust.
+- **`bash` tool runs real commands.** There is currently **no permission-confirmation gate** — the model can execute any command without asking. This is the top item on the roadmap. Until it ships, run minicode only in environments and on codebases you trust.
 - **API keys** are stored in plain text in `~/.config/minicode/config.json` or environment variables, same as most CLI tools. Never commit them.
 - **Sessions** (`~/.minicode/sessions/`) contain your conversation and tool output history in plain JSON. Delete them if that matters to you.
 - **`webfetch`** follows redirects and fetches attacker-controllable URLs only when the model chooses to; responses are size-capped (5 MB) and MIME-filtered.

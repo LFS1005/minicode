@@ -11,7 +11,7 @@ If a change breaks any of these three, it will not be merged — no matter how g
 1. **Node.js built-ins only.** No `npm install`. If you need a library, implement the subset you need in plain JS (see `tools.js` for how grep/glob/HTML→Markdown were done without ripgrep/turndown).
 2. **No build step.** Everything must run with `node src/index.js` directly. No bundler, no transpile, no TypeScript.
 3. **armv7 is the floor.** If it doesn't run on a low-power ARM box with Node's official linux-armv7l build, it doesn't ship.
-4. **Behavior parity with opencode.** Tool descriptions, parameter shapes, and edge-case semantics are ported from [sst/opencode](https://github.com/sst/opencode) `packages/core/src/tool/`. When in doubt, match opencode rather than invent.
+4. **Stable tool semantics.** Tool descriptions, parameter shapes, and edge-case behavior must stay stable and documented. When in doubt, keep the existing contract rather than inventing a new one.
 
 ## Before you open a PR
 
@@ -29,7 +29,7 @@ Also check:
 ## Style
 
 - Plain ESM JavaScript, JSDoc for non-obvious types
-- Comments explain *why* (usually: which opencode file a behavior was ported from)
+- Comments explain *why*, not just what
 - Keep functions small; prefer deletion over abstraction
 
 ## Reporting bugs

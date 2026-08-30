@@ -8,7 +8,7 @@ First public release.
 
 ### Added
 - Agent loop (`agent.js`): streaming LLM calls, tool-call accumulation, result backfill, multi-turn until the model stops calling tools.
-- Seven core tools ported from opencode `packages/core/src/tool/`: `bash`, `read`, `write`, `grep`, `glob`, `apply_patch` (full V4A patch algorithm), `webfetch`.
+- Seven core tools: `bash`, `read`, `write`, `grep`, `glob`, `apply_patch` (full V4A patch algorithm), `webfetch`.
 - Pure-ANSI TUI (`tui.js`): alternate screen, scrolling output area with scrollbar, PageUp/PageDown, mouse-wheel scrolling (SGR mouse reporting, alternate-scroll disabled), bracketed paste, wide-character (CJK) cursor positioning, forms, `/config` wizard, `/history` session loader.
 - Token usage tracking in the bottom-right corner (`xx.xk used`), including usage delivered in standalone SSE chunks (choices-less frames).
 - JSON session persistence with list/load (`session.js`).
