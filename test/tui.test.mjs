@@ -349,6 +349,31 @@ try {
   check("普通字符仍正常输入", t3.input === "ok")
 }
 
+// ---------- X10 鼠标滚轮(SSH 客户端常见,无 SGR) ----------
+{
+  const t = new TUI()
+  t.buffer = Array.from({ length: 30 }, (_, i) => `row${i}`)
+  // X10 滚轮上:ESC [ M + cb(64+32) cx(1+32) cy(1+32)
+  const x10 = "\x1b[M" + String.fromCharCode(64 + 32) + String.fromCharCode(1 + 32) + String.fromCharCode(1 + 32)
+  t.handle(x10)
+  check("X10 滚轮上能滚动", t.scrollOffset > 0)
+  check("X10 payload 不落成输入字符", t.input === "")
+
+  const t2 = new TUI()
+  t2.buffer = Array.from({ length: 30 }, (_, i) => `row${i}`)
+  // X10 滚轮下:cb=65+32
+  const x10d = "\x1b[M" + String.fromCharCode(65 + 32) + String.fromCharCode(1 + 32) + String.fromCharCode(1 + 32)
+  t2.scrollOffset = 10
+  t2.handle(x10d)
+  check("X10 滚轮下能回滚", t2.scrollOffset < 10)
+
+  // SGR 滚轮仍有效
+  const t3 = new TUI()
+  t3.buffer = Array.from({ length: 30 }, (_, i) => `row${i}`)
+  t3.handle("\x1b[<64;1;1M")
+  check("SGR 滚轮仍能滚动", t3.scrollOffset > 0)
+}
+
 const failed = results.filter(([, ok]) => !ok)
 process.stderr.write(`\n${results.length - failed.length}/${results.length} 通过\n`)
 process.exit(failed.length ? 1 : 0)

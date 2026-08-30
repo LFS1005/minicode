@@ -473,16 +473,28 @@ async function main() {
       historyForm = null
       tui.clear()
       tui.addLine(`${Style.DIM}已加载会话 ${id} · 继续对话 · 可用 PageUp/PageDown 滚动查看${Style.NORMAL}`)
-      // 回放完整对话:跳过 system / tool / tool_calls,只显示 user 与 assistant 文本
-      // 用户消息加粗,模型回复正常色;全部入缓冲,配合滚动条查看完整历史
+      // 回放完整对话:system 跳过;user/assistant 文本、工具调用摘要、工具结果全部入缓冲
+      // 配合滚动条查看完整历史,不再裁剪工具轮次
       for (const m of s.messages) {
-        if (m.role === "system" || m.role === "tool" || (m.tool_calls && m.tool_calls.length)) continue
+        if (m.role === "system") continue
         const content = typeof m.content === "string" ? m.content : ""
-        if (!content.trim()) continue
+        const toolCalls = Array.isArray(m.tool_calls) ? m.tool_calls : []
         if (m.role === "user") {
-          tui.addLine(`${Style.BOLD}> ${content.trim()}${Style.NORMAL}`)
-        } else {
-          tui.addLine(content.trim())
+          if (content.trim()) tui.addLine(`${Style.BOLD}> ${content.trim()}${Style.NORMAL}`)
+        } else if (m.role === "assistant") {
+          if (content.trim()) tui.addLine(content.trim())
+          // 工具调用轮次:显示调用摘要(名称 + 参数截断)
+          for (const tc of toolCalls) {
+            const fn = tc?.function
+            const raw = typeof fn?.arguments === "string" ? fn.arguments : JSON.stringify(fn?.arguments ?? {})
+            const short = raw.length > 80 ? raw.slice(0, 80) + "…" : raw
+            tui.addLine(`  ${Style.INFO}🔧 ${fn?.name ?? "?"}(${short})${Style.NORMAL}`)
+          }
+        } else if (m.role === "tool") {
+          // 工具结果:截断展示,保留来源
+          const out = String(m.content ?? "").trim()
+          const short = out.length > 200 ? out.slice(0, 200) + `… (共 ${out.length} 字符)` : out
+          tui.addLine(`  ${Style.DIM}↳ ${short || "(空)"}${Style.NORMAL}`)
         }
         tui.buffer.push("")
       }
