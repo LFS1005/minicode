@@ -75,8 +75,15 @@ ignore 规则（`node_modules`、`.git`、`dist`、`__pycache__` 等约 30 项�
 
 ### 便携包（推荐，任何平台含 armv7）
 
+每次代码修改后递增版本号（`0.1.0-BETA1` → `BETA2` → … → `BETA9`）再打包：
+
 ```bash
-tar -xzf minicode-portable-0.1.0.tar.gz && cd minicode && bash install.sh
+bash bump-version.sh     # 版本号自动递增（已达 BETA9 时需手动改 package.json）
+bash build-portable.sh   # 生成 minicode-portable-<版本>.tar.gz
+```
+
+```bash
+tar -xzf minicode-portable-0.1.0-BETA1.tar.gz && cd minicode && bash install.sh
 ```
 
 `install.sh` 自动完成：
