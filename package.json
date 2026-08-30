@@ -1,19 +1,22 @@
 {
   "name": "minicode",
   "version": "0.1.0-BETA1",
-  "description": "A terminal AI coding agent in under 100 KB of source code. Zero dependencies, pure Node.js, OpenAI-compatible API, runs on armv7.",
+  "description": "A terminal AI coding agent in under 1 MB of source code. Zero dependencies, pure Node.js, OpenAI-compatible API, runs on armv7.",
   "type": "module",
   "bin": {
     "minicode": "src/index.js"
   },
   "files": [
     "src",
+    "install.sh",
+    "build-portable.sh",
+    "bump-version.sh",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/tools.test.mjs && node test/smoke.test.mjs && node test/cli.test.mjs && node test/tui.test.mjs"
+    "test": "node test/tools.test.mjs && node test/smoke.test.mjs && node test/cli.test.mjs && node test/tui.test.mjs && node test/retry.test.mjs"
   },
   "engines": {
     "node": ">=18.17"
