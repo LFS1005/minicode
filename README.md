@@ -1,5 +1,7 @@
 <div align="center">
 
+[English](README.en.md) | [简体中文](README.md)
+
 # minicode
 
 **A terminal AI coding agent in under 1 MB of source code.**
