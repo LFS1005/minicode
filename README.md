@@ -9,7 +9,7 @@
 *部分实现参照 [opencode](https://github.com/sst/opencode)。*
 
 [![size](https://img.shields.io/badge/source%20size-%3C%201%20MB-brightgreen)](#体量)
-[![deps](https://img.shields.io/badge/dependencies-0-blue)](#设计原则)
+[![deps](https://img.shields.io/badge/dependencies-0-blue)](#体量)
 [![runtime](https://img.shields.io/badge/runtime-Node.js%20%E2%89%A5%2018.17-339933)](#安装)
 [![arch](https://img.shields.io/badge/arch-x64%20%7C%20arm64%20%7C%20armv7-orange)](#安装)
 [![tests](https://img.shields.io/badge/tests-148%20%2B%20e2e-success)](#测试)
@@ -127,7 +127,7 @@ src/                       ≈104 KB 合计
   tools.js    (947 行)  七个核心工具 + ignore 规则 + 补丁算法 + HTML→Markdown
   agent.js    (230 行)  Agent 循环、事件发射、失败重试调度
   llm.js      (183 行)  OpenAI 兼容客户端：流式 SSE、工具调用增量累积、usage 捕获、取消信号
-  retry.js    ( 94 行)  失败重试策略：可重试判定 + 指数退避 + retry-after
+  retry.js    ( 94 行)  失败重试：可重试判定 + 退避策略
   config.js   (102 行)  配置解析与保存
   session.js  ( 68 行)  JSON 会话持久化
   prompt.js   ( 25 行)  系统提示词
@@ -140,33 +140,11 @@ test/                     148 项单测 + 4 套端到端
   *_e2e.mjs            winpty/pty 真实终端端到端（无 pty 自动 SKIP）
 ```
 
-## 设计原则
-
-1. **零依赖**：只用 Node.js 内置模块。任何新功能先问"能不能不加包"。
-2. **行为可预期**：工具描述、参数、边界语义稳定，便于自动化与对比。
-3. **可整包读源码**：约 3,000 行，一个下午能全部读完。
-4. **老硬件优先**：armv7 是最低门槛，所有实现选择都以此为约束。
-
-## 失败自动重试
-
-对暂时性故障自动重试，无需人工干预：
-
-- **可重试判定**：5xx 无条件重试；429、OpenAI 的 404 可重试；匹配 7 组错误模式（`rate limit` / `overloaded` / `fetch failed` / 连接重置 / 超时等）可重试；**401/400/403 等认证与参数错误不重试**，直接报错
-- **退避策略**：初始 2s、倍率 ×2、抖动 ±25%；有响应头时优先尊重 `retry-after-ms` / `retry-after`（秒或 HTTP 日期）；无头时上限 30s
-- **最多 5 次重试**，重试期间状态行显示 `⚠ 重试 (n/5): 原因`；流式中断的半截文本自动回退，重试成功后完整重新输出
+## 测试
 
 ```bash
-npm test                      # 148 项单测（tools + smoke + cli + tui + retry）
-node test/tui-e2e.mjs         # 端到端（需 winpty/script，无 pty 自动 SKIP）
+npm test
 ```
-
-## Roadmap
-
-- [ ] 权限确认门（bash/write 执行前交互确认）——优先级最高
-- [ ] `websearch` 工具
-- [ ] build/plan 双 Agent 角色切换
-- [ ] 会话标题自动生成
-- [ ] MCP 最小子集
 
 ## FAQ
 
@@ -177,7 +155,7 @@ node test/tui-e2e.mjs         # 端到端（需 winpty/script，无 pty 自动 S
 任何暴露 OpenAI 兼容 `/v1/chat/completions` 端点的模型都可以（含 one-api / litellm 代理）。
 
 **Q: 安全吗？**
-bash 工具以当前用户权限执行命令。权限确认门在 Roadmap 首位；在此之前请只在可信环境使用。
+bash 工具以当前用户权限执行命令。请只在可信环境使用。
 
 ## License
 
