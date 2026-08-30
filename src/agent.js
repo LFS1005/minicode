@@ -36,7 +36,7 @@ export class Agent {
    * @returns {Promise<{messages: Array, response: string, cancelled: boolean}>} 更新后的完整消息列表与最终回复
    */
   async run(history, userInput, callbacks = {}, opts = {}) {
-    const { signal } = opts
+    const { signal, onProgress } = opts
     const { onEvent } = callbacks
     const emit = (event) => onEvent?.(event)
     const cancelled = () => signal?.aborted === true
@@ -97,6 +97,8 @@ export class Agent {
             }
           : {}),
       })
+      // 每推进一轮就把累积消息增量落盘:防止 run 中途强关窗口/进程时整段记录丢失
+      onProgress?.(messages)
 
       // 统计本轮 token 用量(兼容 OpenAI 新旧两种 usage 字段)
       const u = result.usage ?? {}
@@ -156,6 +158,8 @@ export class Agent {
           },
         })
         messages.push({ role: "tool", tool_call_id: call.id, content: output })
+        // 工具结果同样即时落盘(配合 onProgress 保证中途退出不丢已完成的步骤)
+        onProgress?.(messages)
       }
     }
 

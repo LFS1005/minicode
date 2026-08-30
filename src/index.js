@@ -545,13 +545,24 @@ async function main() {
     }
     let sessionUsage = null
     abortCtrl = new AbortController()
+    // 会话落盘串行队列:onProgress 的增量保存排成链条顺序执行,
+    // 避免并发异步写同一文件覆盖成较短/较旧的内容。
+    let persistChain = Promise.resolve()
+    const persistNow = (msgs) => {
+      persistChain = persistChain.then(() => session.append(msgs)).catch(() => {})
+    }
     try {
       const { messages, usage, cancelled } = await agent.run(session.messages, input, makeCallbacks(useTUI ? tui : undefined), {
         signal: abortCtrl.signal,
+        // 每推进一轮/每个工具结果即时入队落盘:run 中途强关窗口/进程时,
+        // 已完成的步骤也保留在会话文件里,而不是等整轮跑完才一次性保存
+        onProgress: persistNow,
       })
       sessionUsage = usage
       // 中断也保存已发生的消息(用户输入 + 已完成的部分回复),避免会话丢失
-      await session.append(messages)
+      // 先入队(保证串行),再等全部落盘完成
+      persistNow(messages)
+      await persistChain
       if (cancelled) {
         const line = `${Style.WARNING}⏹ 已中断(按 Esc/Ctrl+C 结束当前任务,可继续输入)${Style.NORMAL}`
         if (useTUI) tui.addLine(line)
@@ -576,6 +587,19 @@ async function main() {
       }
     }
   }
+
+  // 退出信号兜底:flush 当前会话到磁盘再退出(避免运行中强关/被杀丢失记录)。
+  // 注意:onProgress 已逐轮落盘,此处主要兜底被 SIGTERM/SIGHUP 杀掉的瞬态。
+  const flushExit = async (code) => {
+    try {
+      await session.append(session.messages)
+    } catch {}
+    if (useTUI) tui?.stop()
+    process.exit(code)
+  }
+  // 添加处理器后,SIGTERM/SIGHUP 的默认终止行为被覆盖,进程会等到 flush 完成再退出
+  process.on("SIGTERM", () => void flushExit(0))
+  process.on("SIGHUP", () => void flushExit(0))
 
   if (useTUI) {
     // ---------- TUI 路径(纯 ANSI,零依赖) ----------

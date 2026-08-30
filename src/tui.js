@@ -131,6 +131,8 @@ export class TUI {
     this.pasteBuf = ""
     // 滚动:scrollOffset = 向上滚动的物理行数(0 = 最新/底部)
     this.scrollOffset = 0
+    // 滚轮节流:同一短时间窗口内只响应一次(避免快速滚动触发整屏重绘的闪烁/刷屏)
+    this.lastMouse = 0
     // 页面下角统计(如 "12.3k used"),渲染在状态行右侧
     this.corner = ""
     // 流式起始位置(重试回退用):null = 不在流式
@@ -337,8 +339,18 @@ export class TUI {
           const k = chunk[j]
           const seqLen = j - i + 1
           if (k === "M" || k === "m") {
-            // SGR 鼠标事件:ESC [ < b ; x ; y M/m;滚轮 64=上 65=下
-            this.handleMouse(params)
+            // SGR 鼠标:ESC [ < ... M/m(参数以 < 开头);X10 鼠标见下方分支
+            if (params.startsWith("<")) {
+              this.handleMouse(params)
+            }
+          } else if (k === "M" && params === "" && j + 3 <= chunk.length) {
+            // X10 鼠标:ESC [ M cb cx cy(各 +32),三个字节都是可打印字符。
+            // 若不足说明被拆到下一个 chunk,走上方 seqBuf 缓存等待拼接。
+            const cb = chunk.charCodeAt(j + 1) - 32
+            this.wheelPage(cb) // 滚轮:64=上 65=下;节流防刷屏
+            // 消费 ESC [ M + 3 payload,绝不让 payload 落成字符刷屏
+            i += seqLen + 3
+            continue
           } else if (k === "A" || k === "B" || k === "C" || k === "D") {
             this.handleEscape(k)
           } else if (k === "~") {
@@ -370,17 +382,30 @@ export class TUI {
     const parts = params.replace(/^</, "").split(";")
     const b = parseInt(parts[0], 10)
     if (!Number.isFinite(b)) return
+    // 滚轮节流:避免快速滚动每 tick 都整屏重绘导致的闪烁/刷屏
+    const now = Date.now()
+    if (now - this.lastMouse < 16) return
+    this.lastMouse = now
     const kind = b & 0x43 // 取低有效位:0-2=按键 32=拖动 64/65=滚轮
-    if (kind === 64) {
-      this.handlePage(-3) // 滚轮上:滚 3 行
-    } else if (kind === 65) {
-      this.handlePage(3) // 滚轮下:滚 3 行
+    if (kind === 64 || kind === 65) {
+      this.wheelPage(kind) // 滚轮:64=上 65=下;节流防刷屏
     }
     // 点击/拖动/释放:暂不处理
   }
 
-  // PageUp/PageDown:滚动输出区(delta 行数,负数向上)
+  // 滚轮统一入口(SGR 与 X10 共用):节流 + 到达边界时不重绘,避免高频滚动画闪/刷屏
+  wheelPage(cb) {
+    const now = Date.now()
+    if (now - this.lastMouse < 32) return
+    this.lastMouse = now
+    const kind = cb & 0x43
+    if (kind === 64) this.handlePage(-3) // 滚轮上:滚 3 行
+    else if (kind === 65) this.handlePage(3) // 滚轮下:滚 3 行
+  }
+
+  // PageUp/PageDown:滚动输出区(delta 行数,负数向上);scrollOffset 无变化时不重绘
   handlePage(delta) {
+    const before = this.scrollOffset
     const h = Math.max(this.rows - 2, 1)
     const total = this.physicalCount()
     const maxOffset = Math.max(0, total - h)
@@ -389,7 +414,7 @@ export class TUI {
     } else {
       this.scrollOffset = Math.max(0, this.scrollOffset - h)
     }
-    this.render()
+    if (this.scrollOffset !== before) this.render()
   }
 
   // 输出区物理行总数(折行后)
