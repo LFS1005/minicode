@@ -14,7 +14,7 @@ if [ "$NUM" -ge 9 ]; then
   echo "❌ 已达 BETA9 上限,请手动改 package.json 版本号(如 0.2.0-BETA1)。"
   exit 1
 fi
-BASE=$(node -e "const v='$VERSION'.replace(/BETA\d+$/,''); console.log(v || '0.1.0')")
+BASE=$(node -e "const v='$VERSION'.replace(/[-_]?BETA\d+$/,''); console.log(v || '0.1.0')")
 NEW="${BASE}-BETA$((NUM + 1))"
 node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('package.json','utf8'));j.version='$NEW';fs.writeFileSync('package.json',JSON.stringify(j,null,2)+'\n')"
 echo "✓ 版本: $VERSION → $NEW"

@@ -1,6 +1,6 @@
 {
   "name": "minicode",
-  "version": "0.1.0--BETA2",
+  "version": "0.1.0-BETA2",
   "description": "A terminal AI coding agent in under 1 MB of source code. Zero dependencies, pure Node.js, OpenAI-compatible API, runs on armv7.",
   "type": "module",
   "bin": {
