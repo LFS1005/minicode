@@ -2,7 +2,7 @@
 
 All notable changes to minicode are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/); versioning: [SemVer](https://semver.org/).
 
-## [0.1.0-BETA1] - 2026-08-30
+## [0.1.0] - 2026-08-30
 
 First public release.
 
@@ -17,4 +17,4 @@ First public release.
 - Portable installer (`install.sh`): PATH persistence on POSIX (bash/zsh/profile) and Windows (user environment variables), idempotent re-install, optional API env vars at install time.
 - Test suite: 108 unit tests (tools/smoke/cli/tui) plus e2e suites (tui-e2e, toolview-e2e, paste-e2e, config-e2e) with automatic SKIP when no pty is available.
 
-[0.1.0-BETA1]: https://github.com/OWNER/minicode/releases/tag/v0.1.0-BETA1
+[0.1.0]: https://github.com/OWNER/minicode/releases/tag/v0.1.0
