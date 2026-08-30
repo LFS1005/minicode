@@ -319,17 +319,21 @@ export class TUI {
     while (i < chunk.length) {
       const ch = chunk[i]
       if (ch === ESC) {
-        // 解析完整 ANSI 转义序列:ESC [ 参数 终止字节;序列可能跨 chunk 分片
+        // 解析完整 ANSI 转义序列:ESC [ 参数(0x30-0x3F,含?/<) 中间字节(0x20-0x2F,含$)
+        // 终止字节(0x40-0x7E);序列可能跨 chunk 分片
         if (chunk[i + 1] === "[") {
           let j = i + 2
-          // 跳过参数字节(数字/分号/SGR 鼠标的 <),直到终止字节(字母或 ~)
-          while (j < chunk.length && /[0-9;<]/.test(chunk[j])) j++
+          // 参数字节:0x30-0x3F(数字/分号/?/</=/>等)
+          while (j < chunk.length && chunk[j] >= "\x30" && chunk[j] <= "\x3f") j++
+          const paramEnd = j
+          // 中间字节:0x20-0x2F(如 DECRQM 响应的 $)——跳过但不进参数
+          while (j < chunk.length && chunk[j] >= "\x20" && chunk[j] <= "\x2f") j++
           if (j >= chunk.length) {
             // 序列未完整:缓存等下一个 chunk
             this.seqBuf = chunk.slice(i)
             return
           }
-          const params = chunk.slice(i + 2, j)
+          const params = chunk.slice(i + 2, paramEnd)
           const k = chunk[j]
           const seqLen = j - i + 1
           if (k === "M" || k === "m") {
@@ -348,6 +352,7 @@ export class TUI {
           } else if (k === "F") {
             this.scrollToBottom()
           }
+          // 其余终止字节(如 DECRQM 的 y / 键盘协议 u 等):完整消费,静默忽略
           i += seqLen
           continue
         }

@@ -51,7 +51,6 @@ export class Agent {
 
     let finalText = ""
     let turns = 0
-    let error
     // token 用量统计(参照 opencode projector.ts 的 usage 统计)
     let totalInputTokens = 0
     let totalOutputTokens = 0
@@ -59,11 +58,7 @@ export class Agent {
 
     for (;;) {
       if (interruptCheck()) break
-      if (++turns > this.config.maxTurns) {
-        error = `已达最大工具调用轮数(${this.config.maxTurns}),已停止。`
-        emit({ type: "error", error })
-        break
-      }
+      turns++
 
       emit({ type: "step_start", turn: turns })
       emit({ type: "message.updated", agent: "build", modelID: this.config.model })

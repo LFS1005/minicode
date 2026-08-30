@@ -325,6 +325,30 @@ try {
   check("运行中箭头键不触发中断", interrupted === 2)
 }
 
+// ---------- DECRQM 模式查询响应序列(终端上报,不应进输入框) ----------
+{
+  const t3 = new TUI()
+  t3.input = ""
+  t3.cursor = 0
+  // 完整的 DECRQM 响应串:ESC [ ? 2004 ; 2 $ y(2004=bracketed paste 模式号)
+  const dqm = "\x1b[?2004;2$y\x1b[?2026;2$y\x1b[?1016;0$y\x1b[?1004;1$y"
+  t3.handle(dqm)
+  check("DECRQM 响应不进输入框", t3.input === "")
+
+  // 序列跨 chunk 分片(ESC [ ? 20 | 04;2$y):重组后同样静默
+  const t4 = new TUI()
+  t4.handle("\x1b[?20")
+  t4.handle("04;2$y")
+  check("跨 chunk 分片的 DECRQM 不进输入框", t4.input === "")
+
+  // 分片序列不能误触发多行粘贴判定(含分号但无换行)
+  check("分片不误触粘贴", t4.pasting === false && t4.pasteBuf === "")
+
+  // 正常字符在 DECRQM 之外仍能输入
+  t3.handle("ok")
+  check("普通字符仍正常输入", t3.input === "ok")
+}
+
 const failed = results.filter(([, ok]) => !ok)
 process.stderr.write(`\n${results.length - failed.length}/${results.length} 通过\n`)
 process.exit(failed.length ? 1 : 0)
