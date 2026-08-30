@@ -5,6 +5,7 @@
 
 import { chat } from "./llm.js"
 import { buildSystemPrompt } from "./prompt.js"
+import { delay, retryable, RETRY_MAX_RETRIES } from "./retry.js"
 
 export class Agent {
   /**
@@ -58,19 +59,17 @@ export class Agent {
       emit({ type: "step_start", turn: turns })
       emit({ type: "message.updated", agent: "build", modelID: this.config.model })
 
-      const result = await chat({
-        baseUrl: this.config.baseUrl,
-        apiKey: this.config.apiKey,
-        model: this.config.model,
-        messages,
-        tools: this.tools.definitions(),
-        timeout: this.config.timeout,
-        onDelta: {
-          onText: (t) => {
-            callbacks.onText?.(t)
-            finalText += t
-          },
-          onToolCall: (c) => callbacks.onToolCall?.(c),
+      // 失败重试 —— 照搬 opencode processor.ts 的 Effect.retry(policy):
+      // 整个 chat(流)调用包在重试循环里;429/5xx/网络层/超时等暂时性故障自动重试,
+      // 指数退避 + retry-after 响应头 + 抖动,最多 RETRY_MAX_RETRIES 次(见 retry.js)
+      const result = await this.#chatWithRetry(messages, callbacks, emit, {
+        onText: (t) => {
+          finalText += t
+          callbacks.onText?.(t)
+        },
+        onReset: () => {
+          // 重试轮次的文本从头重新流,已累积的作废
+          finalText = ""
         },
       })
 
@@ -155,6 +154,39 @@ export class Agent {
       messages,
       response: finalText.trim(),
       usage: { input: totalInputTokens, output: totalOutputTokens, cacheRead: totalCacheRead },
+    }
+  }
+
+  // 带重试的 chat 调用。对齐 opencode:重试整个流,重试前重置已累积文本,
+  // 并通过 session.status {type:"retry"} 事件通知 UI(状态行显示重试进度)。
+  async #chatWithRetry(messages, callbacks, emit, hooks) {
+    let attempt = 0
+    for (;;) {
+      try {
+        return await chat({
+          baseUrl: this.config.baseUrl,
+          apiKey: this.config.apiKey,
+          model: this.config.model,
+          messages,
+          tools: this.tools.definitions(),
+          timeout: this.config.timeout,
+          onDelta: {
+            onText: (t) => hooks.onText(t),
+            onToolCall: (c) => callbacks.onToolCall?.(c),
+          },
+        })
+      } catch (err) {
+        attempt++
+        const info = retryable(err)
+        if (!info || attempt > RETRY_MAX_RETRIES) throw err
+        const wait = delay(attempt, err)
+        // 对齐 processor.ts:status.set({ type:"retry", attempt, message, next })
+        const infoEvent = { attempt, message: info.message, next: Date.now() + wait }
+        emit({ type: "session.status", status: { type: "retry", ...infoEvent } })
+        callbacks.onRetry?.(infoEvent)
+        hooks.onReset()
+        await new Promise((r) => setTimeout(r, wait))
+      }
     }
   }
 

@@ -197,6 +197,18 @@ async function main() {
       else ui.text(t)
     },
     onToolCall: () => {},
+    // 重试开始前:回退已流出的半截文本(对齐 opencode 重试时重置 currentText),
+    // 并显示重试状态;重试成功后文本重新完整流出
+    onRetry: (info) => {
+      if (format === "json") return
+      const line = `${Style.WARNING}⚠ 重试 (${info.attempt}/5): ${info.message} · ${Math.max(0, Math.round((info.next - Date.now()) / 1000))}s 后重试${Style.NORMAL}`
+      if (tui) {
+        tui.rollbackStream()
+        tui.setStatus(line)
+      } else {
+        ui.log(line)
+      }
+    },
     onEvent: (event) => {
       // json:事件序列化到 stdout
       if (format === "json") {
@@ -239,6 +251,11 @@ async function main() {
         } else if (part.type === "text" && tui) {
           tui.endStream()
         }
+      }
+      if (event.type === "session.status" && event.status?.type === "retry" && tui) {
+        // 状态行展示重试进度(opencode 用 session.status {type:"retry"} 通知 UI)
+        const s = event.status
+        tui.setStatus(`${Style.WARNING}⚠ 重试 (${s.attempt}/5): ${s.message}${Style.NORMAL}`)
       }
       if (event.type === "usage") {
         // 页面下角累计显示:总计 token 数(含输入+输出)

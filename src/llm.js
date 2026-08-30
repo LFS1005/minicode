@@ -1,11 +1,18 @@
 // 极简 OpenAI 兼容客户端:裸 fetch,支持流式 SSE 与工具调用
 // 兼容 OpenAI / DeepSeek / 本地 Ollama / vLLM 等任何 /v1/chat/completions 服务
 
+// 与 opencode session/message-v2.ts 的 APIError 对应:携带 status / headers / body
+// 供 agent.js 的重试策略(retry.js)判定
+// - 网络层错误:status = undefined,message 含 "fetch failed" 等可匹配模式
+// - HTTP 错误:status = 状态码,headers / body 供 retry-after 退避
+// - 超时:status = undefined,message 含 "timeout",可重试
 export class LLMError extends Error {
-  constructor(message, status) {
+  constructor(message, status, { headers, body } = {}) {
     super(message)
     this.name = "LLMError"
     this.status = status
+    this.headers = headers
+    this.body = body
   }
 }
 
@@ -43,17 +50,26 @@ export async function chat({ baseUrl, apiKey, model, messages, tools, onDelta, t
       signal: ctrl.signal,
     })
   } catch (err) {
-    throw new LLMError(`请求失败: ${err.message}`)
+    // 网络层错误:对齐 opencode 的 ECONNRESET/fetch failed 处理,可重试
+    const aborted = err?.name === "AbortError" || err?.code === "ABORT_ERR"
+    // 超时消息含英文 "request timeout",匹配 opencode retry.ts 的可重试模式
+    const message = aborted
+      ? `请求超时(request timeout,超过 ${timeout} ms)`
+      : `请求失败: ${err?.message ?? err}`
+    throw new LLMError(message, undefined, { headers: {} })
   } finally {
     clearTimeout(timer)
   }
 
   if (!res.ok) {
+    // 照搬 error.ts message():保留状态码、响应头(retry-after)与响应体(错误详情)
     let detail = ""
     try {
       detail = (await res.text()).slice(0, 500)
     } catch {}
-    throw new LLMError(`API 返回 ${res.status}: ${detail}`, res.status)
+    const headers = {}
+    for (const [k, v] of res.headers.entries()) headers[k] = v
+    throw new LLMError(`API 返回 ${res.status}: ${detail}`, res.status, { headers, body: detail })
   }
 
   return await consumeStream(res.body, onDelta)

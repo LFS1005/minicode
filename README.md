@@ -10,7 +10,7 @@
 [![deps](https://img.shields.io/badge/dependencies-0-blue)](#设计原则)
 [![runtime](https://img.shields.io/badge/runtime-Node.js%20%E2%89%A5%2018.17-339933)](#安装)
 [![arch](https://img.shields.io/badge/arch-x64%20%7C%20arm64%20%7C%20armv7-orange)](#安装)
-[![tests](https://img.shields.io/badge/tests-108%20%2B%20e2e-success)](#测试)
+[![tests](https://img.shields.io/badge/tests-139%20%2B%20e2e-success)](#测试)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 </div>
@@ -142,10 +142,16 @@ test/                     108 项单测 + 4 套端到端
 3. **可整包读源码**：2,718 行，一个下午能全部读完。
 4. **老硬件优先**：armv7 是最低门槛，所有实现选择都以此为约束。
 
-## 测试
+## 失败自动重试（照搬 opencode `session/retry.ts`）
+
+对暂时性故障自动重试，无需人工干预：
+
+- **可重试判定**：5xx 无条件重试；429、OpenAI 的 404 可重试；匹配 7 组错误模式（`rate limit` / `overloaded` / `fetch failed` / 连接重置 / 超时等）可重试；**401/400/403 等认证与参数错误不重试**，直接报错
+- **退避策略**：初始 2s、倍率 ×2、抖动 ±25%；有响应头时优先尊重 `retry-after-ms` / `retry-after`（秒或 HTTP 日期）；无头时上限 30s
+- **最多 5 次重试**，重试期间状态行显示 `⚠ 重试 (n/5): 原因`；流式中断的半截文本自动回退，重试成功后完整重新输出
 
 ```bash
-npm test                      # 108 项单测（tools + smoke + cli + tui）
+npm test                      # 139 项单测（tools + smoke + cli + tui + retry）
 node test/tui-e2e.mjs         # 端到端（需 winpty/script，无 pty 自动 SKIP）
 ```
 

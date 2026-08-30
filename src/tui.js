@@ -132,6 +132,8 @@ export class TUI {
     this.scrollOffset = 0
     // 页面下角统计(如 "12.3k used"),渲染在状态行右侧
     this.corner = ""
+    // 流式起始位置(重试回退用):null = 不在流式
+    this.streamStart = null
     // 转义序列分片缓存(序列被拆在两个 data 事件之间)
     this.seqBuf = ""
     // 表单模式(配置向导等):
@@ -191,8 +193,12 @@ export class TUI {
   }
 
   // 流式追加到当前行,处理 \n
+  // 记录流式起始位置,供重试时回退(对齐 opencode 重试时重置 currentText)
   appendStream(chunk) {
     if (!chunk) return
+    if (this.streamStart === null) {
+      this.streamStart = { line: this.buffer.length, col: this.buffer[this.buffer.length - 1]?.length ?? 0 }
+    }
     const parts = chunk.split("\n")
     if (this.buffer.length === 0) this.buffer.push("")
     this.buffer[this.buffer.length - 1] += parts[0]
@@ -202,7 +208,20 @@ export class TUI {
 
   endStream() {
     // 流式文本结束:补一个空行与下一条内容分隔
+    this.streamStart = null
     if (this.buffer.length && this.buffer[this.buffer.length - 1] !== "") this.buffer.push("")
+    this.render()
+  }
+
+  // 回退到本次流式开始前(重试时丢弃已流出的半截文本)
+  rollbackStream() {
+    if (this.streamStart === null) return
+    const { line, col } = this.streamStart
+    if (line < this.buffer.length) this.buffer = this.buffer.slice(0, line)
+    if (this.buffer.length === line && this.buffer[line - 1] && col < this.buffer[line - 1].length) {
+      this.buffer[line - 1] = this.buffer[line - 1].slice(0, col)
+    }
+    this.streamStart = null
     this.render()
   }
 
