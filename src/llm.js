@@ -7,12 +7,13 @@
 // - HTTP 错误:status = 状态码,headers / body 供 retry-after 退避
 // - 超时:status = undefined,message 含 "timeout",可重试
 export class LLMError extends Error {
-  constructor(message, status, { headers, body } = {}) {
+  constructor(message, status, { headers, body, cancelled } = {}) {
     super(message)
     this.name = "LLMError"
     this.status = status
     this.headers = headers
     this.body = body
+    this.cancelled = cancelled // 用户主动取消(不可重试)
   }
 }
 
@@ -26,9 +27,10 @@ export class LLMError extends Error {
  * @param {Array}  opts.tools    OpenAI tools 定义(可空)
  * @param {object} [opts.onDelta] 流式回调 { onText, onToolCall }
  * @param {number} [opts.timeout] 超时毫秒
+ * @param {AbortSignal} [opts.signal] 外部取消信号(用户按 Esc 中断 agent)
  * @returns {Promise<{content: string, toolCalls: Array|null, usage: object|null}>} 最终 assistant 消息
  */
-export async function chat({ baseUrl, apiKey, model, messages, tools, onDelta, timeout = 120_000 }) {
+export async function chat({ baseUrl, apiKey, model, messages, tools, onDelta, timeout = 120_000, signal }) {
   const body = {
     model,
     messages,
@@ -36,43 +38,60 @@ export async function chat({ baseUrl, apiKey, model, messages, tools, onDelta, t
   }
   if (tools?.length) body.tools = tools
 
+  // 合并内部超时信号与外部取消信号(取消 = 用户中断,不可重试)
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeout)
-  let res
+  const onExternalAbort = () => ctrl.abort()
+  if (signal) {
+    if (signal.aborted) ctrl.abort()
+    else signal.addEventListener("abort", onExternalAbort, { once: true })
+  }
   try {
-    res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    })
-  } catch (err) {
-    // 网络层错误:对齐 opencode 的 ECONNRESET/fetch failed 处理,可重试
-    const aborted = err?.name === "AbortError" || err?.code === "ABORT_ERR"
-    // 超时消息含英文 "request timeout",匹配 opencode retry.ts 的可重试模式
-    const message = aborted
-      ? `请求超时(request timeout,超过 ${timeout} ms)`
-      : `请求失败: ${err?.message ?? err}`
-    throw new LLMError(message, undefined, { headers: {} })
+    let res
+    try {
+      res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      })
+    } catch (err) {
+      // 用户主动取消:抛带 cancelled 标记的错误,不参与重试
+      if (signal?.aborted) throw new LLMError("已中断", undefined, { headers: {}, cancelled: true })
+      // 网络层错误:对齐 opencode 的 ECONNRESET/fetch failed 处理,可重试
+      const aborted = err?.name === "AbortError" || err?.code === "ABORT_ERR"
+      // 超时消息含英文 "request timeout",匹配 opencode retry.ts 的可重试模式
+      const message = aborted
+        ? `请求超时(request timeout,超过 ${timeout} ms)`
+        : `请求失败: ${err?.message ?? err}`
+      throw new LLMError(message, undefined, { headers: {} })
+    }
+
+    if (!res.ok) {
+      // 照搬 error.ts message():保留状态码、响应头(retry-after)与响应体(错误详情)
+      let detail = ""
+      try {
+        detail = (await res.text()).slice(0, 500)
+      } catch {}
+      const headers = {}
+      for (const [k, v] of res.headers.entries()) headers[k] = v
+      throw new LLMError(`API 返回 ${res.status}: ${detail}`, res.status, { headers, body: detail })
+    }
+
+    try {
+      return await consumeStream(res.body, onDelta)
+    } catch (err) {
+      // 流式中途被用户取消(reader.read 抛 AbortError)
+      if (signal?.aborted) throw new LLMError("已中断", undefined, { headers: {}, cancelled: true })
+      throw err
+    }
   } finally {
     clearTimeout(timer)
+    signal?.removeEventListener("abort", onExternalAbort)
   }
-
-  if (!res.ok) {
-    // 照搬 error.ts message():保留状态码、响应头(retry-after)与响应体(错误详情)
-    let detail = ""
-    try {
-      detail = (await res.text()).slice(0, 500)
-    } catch {}
-    const headers = {}
-    for (const [k, v] of res.headers.entries()) headers[k] = v
-    throw new LLMError(`API 返回 ${res.status}: ${detail}`, res.status, { headers, body: detail })
-  }
-
-  return await consumeStream(res.body, onDelta)
 }
 
 async function consumeStream(body, onDelta) {

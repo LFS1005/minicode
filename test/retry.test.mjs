@@ -251,6 +251,52 @@ const check = (name, cond) => {
   }
 }
 
+// ---------- 集成测试:用户按 Esc 中断 agent(signal.abort) ----------
+{
+  let requestCount = 0
+  const server = http.createServer((req, res) => {
+    req.on("data", () => {})
+    req.on("end", () => {
+      requestCount++
+      res.writeHead(200, { "Content-Type": "text/event-stream" })
+      // 流式输出一部分后挂起,等待客户端取消
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "开头" } }] })}\n\n`)
+      // 不结束:模拟长回复,让测试中途 abort
+    })
+  })
+
+  await new Promise((r) => server.listen(PORT + 4, r))
+  try {
+    const dir = mkdtempSync(path.join(tmpdir(), "lite-retry-abort-"))
+    const config = {
+      baseUrl: `http://127.0.0.1:${PORT + 4}/v1`,
+      apiKey: "test-key",
+      model: "test-model",
+      shell: process.platform === "win32" ? process.env.COMSPEC ?? "cmd.exe" : "/bin/sh",
+      maxTurns: 5,
+      timeout: 30_000, // 大于测试取消时间,确保是 signal 触发而非超时
+    }
+    const tools = buildTools(config)
+    const agent = new Agent({ config, tools, cwd: dir })
+    const ctrl = new AbortController()
+    // 300ms 后模拟用户按 Esc
+    const timer = setTimeout(() => ctrl.abort(), 300)
+    const { messages, cancelled, response } = await agent.run(
+      Agent.newMessages(dir),
+      "长任务测试",
+      { onText: () => {}, onToolCall: () => {} },
+      { signal: ctrl.signal },
+    )
+    clearTimeout(timer)
+    check("Esc 中断后 cancelled 为 true", cancelled === true)
+    check("中断后不抛错(正常返回)", response === "" || typeof response === "string")
+    check("中断后会话仍保留 user 消息", messages.some((m) => m.role === "user" && m.content === "长任务测试"))
+    check("中断不触发重试(请求仅 1 次)", requestCount === 1)
+  } finally {
+    server.close()
+  }
+}
+
 const failed = results.filter(([, ok]) => !ok)
 console.log(`\n${results.length - failed.length}/${results.length} 通过`)
 process.exit(failed.length ? 1 : 0)

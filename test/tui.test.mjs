@@ -296,6 +296,35 @@ try {
   } catch {}
 }
 
+// ---------- Esc 中断 agent ----------
+{
+  const t2 = new TUI()
+  let interrupted = 0
+  t2.onInterrupt = () => interrupted++
+
+  // 空闲时按 Esc:不触发中断(正常行编辑/Esc 忽略)
+  t2.running = false
+  t2.handle("\x1b")
+  check("空闲时 Esc 不触发中断", interrupted === 0)
+
+  // agent 执行中按 Esc:触发 onInterrupt
+  t2.running = true
+  t2.handle("\x1b")
+  check("运行中 Esc 触发中断", interrupted === 1)
+
+  // 运行中 Ctrl+C:触发中断而不是退出
+  t2.handle("\x03")
+  check("运行中 Ctrl+C 触发中断", interrupted === 2)
+
+  // 运行中普通字符:忽略,不触发
+  t2.handle("abc")
+  check("运行中普通字符不触发中断", interrupted === 2)
+
+  // 运行中箭头键序列:忽略,不触发中断
+  t2.handle("\x1b[A")
+  check("运行中箭头键不触发中断", interrupted === 2)
+}
+
 const failed = results.filter(([, ok]) => !ok)
 process.stderr.write(`\n${results.length - failed.length}/${results.length} 通过\n`)
 process.exit(failed.length ? 1 : 0)

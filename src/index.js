@@ -499,6 +499,7 @@ async function main() {
   let tui = null // TUI 实例(useTUI 时由下方创建,handleInput 闭包引用)
   let rl = null // readline 实例(history 数字选择用)
   let pendingHistorySelect = false
+  let abortCtrl = null // 当前 agent 运行的取消控制器(Esc 中断用)
 
   const handleInput = async (raw) => {
     const input = raw.trim()
@@ -543,10 +544,19 @@ async function main() {
       tui.render()
     }
     let sessionUsage = null
+    abortCtrl = new AbortController()
     try {
-      const { messages, usage } = await agent.run(session.messages, input, makeCallbacks(useTUI ? tui : undefined))
+      const { messages, usage, cancelled } = await agent.run(session.messages, input, makeCallbacks(useTUI ? tui : undefined), {
+        signal: abortCtrl.signal,
+      })
       sessionUsage = usage
+      // 中断也保存已发生的消息(用户输入 + 已完成的部分回复),避免会话丢失
       await session.append(messages)
+      if (cancelled) {
+        const line = `${Style.WARNING}⏹ 已中断(按 Esc/Ctrl+C 结束当前任务,可继续输入)${Style.NORMAL}`
+        if (useTUI) tui.addLine(line)
+        else ui.log(line)
+      }
       if (!useTUI) {
         ui.log("")
         ui.log(`${Style.DIM}会话用量: ↑${fmtTokens(usage?.input ?? 0)} ↓${fmtTokens(usage?.output ?? 0)}${usage?.cacheRead ? ` · 缓存 ${fmtTokens(usage.cacheRead)}` : ""}${Style.NORMAL}`)
@@ -554,6 +564,7 @@ async function main() {
     } catch (err) {
       ui.error(err.message)
     } finally {
+      abortCtrl = null
       if (useTUI) {
         tui.running = false
         // 页面下角保留最终用量
@@ -573,9 +584,13 @@ async function main() {
     tui.submit = (input) => void handleInput(input)
     tui.onExit = () => process.exit(0)
     tui.onFormKey = (key) => handleFormKey(key)
+    // agent 执行中按 Esc / Ctrl+C:中断当前任务,保留会话并可继续输入
+    tui.onInterrupt = () => {
+      if (abortCtrl) abortCtrl.abort()
+    }
     tui.start()
     tui.addLine(`${Style.DIM}minicode v${version} | ${config.model} | ${cwd}${Style.NORMAL}`)
-    if (!resume) tui.addLine(`${Style.DIM}新会话 ${session.id} · /help 帮助 · Ctrl+C 退出${Style.NORMAL}`)
+    if (!resume) tui.addLine(`${Style.DIM}新会话 ${session.id} · /help 帮助 · Esc 中断 · Ctrl+C 退出${Style.NORMAL}`)
     if (configHint) tui.addLine(configHint)
     tui.addLine("")
   } else {

@@ -24,7 +24,7 @@ export class Agent {
    * 执行一轮完整对话(可包含多次工具调用)。
    * @param {Array} history 之前的 OpenAI messages(不含本轮 user 消息)
    * @param {string} userInput 用户输入
-   * @param {object} [callbacks] { onText, onToolCall, onEvent }
+   * @param {object} [callbacks] { onText, onToolCall, onEvent, onRetry }
    *   onEvent: (event) => void,事件与 opencode run.ts 对齐:
    *     { type: "step_start", turn }
    *     { type: "message.updated", agent, modelID }
@@ -32,11 +32,19 @@ export class Agent {
    *     { type: "message.part.updated", part: { type:"text", text } }
    *     { type: "session.status", status: { type: "idle" } }
    *     { type: "error", error: string }
-   * @returns {Promise<{messages: Array, response: string}>} 更新后的完整消息列表与最终回复
+   * @param {object} [opts] { signal } AbortSignal:用户按 Esc 中断 agent
+   * @returns {Promise<{messages: Array, response: string, cancelled: boolean}>} 更新后的完整消息列表与最终回复
    */
-  async run(history, userInput, callbacks = {}) {
+  async run(history, userInput, callbacks = {}, opts = {}) {
+    const { signal } = opts
     const { onEvent } = callbacks
     const emit = (event) => onEvent?.(event)
+    const cancelled = () => signal?.aborted === true
+    const interruptCheck = () => {
+      if (!cancelled()) return false
+      emit({ type: "session.status", status: { type: "idle" } })
+      return true
+    }
 
     const messages = [...history]
     messages.push({ role: "user", content: userInput })
@@ -50,6 +58,7 @@ export class Agent {
     let totalCacheRead = 0
 
     for (;;) {
+      if (interruptCheck()) break
       if (++turns > this.config.maxTurns) {
         error = `已达最大工具调用轮数(${this.config.maxTurns}),已停止。`
         emit({ type: "error", error })
@@ -62,16 +71,23 @@ export class Agent {
       // 失败重试 —— 照搬 opencode processor.ts 的 Effect.retry(policy):
       // 整个 chat(流)调用包在重试循环里;429/5xx/网络层/超时等暂时性故障自动重试,
       // 指数退避 + retry-after 响应头 + 抖动,最多 RETRY_MAX_RETRIES 次(见 retry.js)
-      const result = await this.#chatWithRetry(messages, callbacks, emit, {
-        onText: (t) => {
-          finalText += t
-          callbacks.onText?.(t)
-        },
-        onReset: () => {
-          // 重试轮次的文本从头重新流,已累积的作废
-          finalText = ""
-        },
-      })
+      let result
+      try {
+        result = await this.#chatWithRetry(messages, callbacks, emit, signal, {
+          onText: (t) => {
+            finalText += t
+            callbacks.onText?.(t)
+          },
+          onReset: () => {
+            // 重试轮次的文本从头重新流,已累积的作废
+            finalText = ""
+          },
+        })
+      } catch (err) {
+        // 用户按 Esc 取消:干净地结束本轮,保留已发生的消息
+        if (err?.cancelled) break
+        throw err
+      }
 
       messages.push({
         role: "assistant",
@@ -110,8 +126,11 @@ export class Agent {
         break
       }
 
+      if (interruptCheck()) break
+
       // 依次执行工具并回填结果
       for (const call of result.toolCalls) {
+        if (interruptCheck()) break
         const { name, arguments: args } = call.function
         const tool = this.tools.get(name)
         emit({
@@ -145,23 +164,32 @@ export class Agent {
       }
     }
 
-    emit({
-      type: "session.status",
-      status: { type: "idle" },
-      usage: { input: totalInputTokens, output: totalOutputTokens, cacheRead: totalCacheRead },
-    })
+    if (!cancelled()) {
+      emit({
+        type: "session.status",
+        status: { type: "idle" },
+        usage: { input: totalInputTokens, output: totalOutputTokens, cacheRead: totalCacheRead },
+      })
+    }
     return {
       messages,
       response: finalText.trim(),
       usage: { input: totalInputTokens, output: totalOutputTokens, cacheRead: totalCacheRead },
+      cancelled: cancelled(),
     }
   }
 
   // 带重试的 chat 调用。对齐 opencode:重试整个流,重试前重置已累积文本,
   // 并通过 session.status {type:"retry"} 事件通知 UI(状态行显示重试进度)。
-  async #chatWithRetry(messages, callbacks, emit, hooks) {
+  async #chatWithRetry(messages, callbacks, emit, signal, hooks) {
     let attempt = 0
     for (;;) {
+      // 用户按 Esc 取消:直接抛 cancelled 错误,不重试
+      if (signal?.aborted) {
+        const e = new Error("已中断")
+        e.cancelled = true
+        throw e
+      }
       try {
         return await chat({
           baseUrl: this.config.baseUrl,
@@ -170,12 +198,15 @@ export class Agent {
           messages,
           tools: this.tools.definitions(),
           timeout: this.config.timeout,
+          signal,
           onDelta: {
             onText: (t) => hooks.onText(t),
             onToolCall: (c) => callbacks.onToolCall?.(c),
           },
         })
       } catch (err) {
+        // 用户主动取消:不再重试,向上抛(agent.run 会转成正常返回)
+        if (err?.cancelled) throw err
         attempt++
         const info = retryable(err)
         if (!info || attempt > RETRY_MAX_RETRIES) throw err

@@ -124,6 +124,7 @@ export class TUI {
     this.running = false // agent 执行中,忽略输入
     this.submit = null // 由外部设置:onSubmit(input)
     this.onExit = null
+    this.onInterrupt = null // 由外部设置:agent 执行中按 Esc/Ctrl+C 时触发
     this.raw = false
     // 粘贴状态(bracketed paste)
     this.pasting = false
@@ -263,8 +264,10 @@ export class TUI {
       this.seqBuf = ""
     }
     if (this.running) {
-      // agent 执行中:仅响应 Ctrl+C 中断
-      if (chunk.includes("\x03")) this.exit()
+      // agent 执行中:Esc 或 Ctrl+C 中断当前任务(不退出程序)
+      if (chunk.includes("\x03") || chunk === ESC) {
+        this.onInterrupt?.()
+      }
       return
     }
     // bracketed paste 内容可能分多段到达
