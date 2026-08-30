@@ -10,7 +10,6 @@
     "src",
     "install.sh",
     "build-portable.sh",
-    "bump-version.sh",
     "README.md",
     "LICENSE"
   ],
