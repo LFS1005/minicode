@@ -1,0 +1,30 @@
+# Node / runtime
+node_modules/
+npm-debug.log*
+.npm/
+*.tsbuildinfo
+
+# minicode runtime artifacts
+sessions/
+*.session.json
+.minicode/
+
+# Portable build output
+minicode-portable-*.tar.gz
+.portable-*/
+dist/
+build/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs / temp
+*.log
+tmp/
+temp/
+*.tmp.*
+out.txt
